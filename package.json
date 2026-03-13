@@ -1,0 +1,26 @@
+{
+  "name": "via-website",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"node server.js\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "react": "^19",
+    "react-dom": "^19",
+    "react-router-dom": "^7",
+    "react-bootstrap": "^2",
+    "express": "^5",
+    "@prisma/client": "^6",
+    "bootstrap": "^5"
+  },
+  "devDependencies": {
+    "vite": "^6",
+    "@vitejs/plugin-react": "^4",
+    "concurrently": "^9",
+    "prisma": "^6"
+  }
+}
