@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Container, Row, Col, Button } from 'react-bootstrap';
 import './App.css';
 
@@ -7,9 +7,10 @@ const COLS = 7;
 const EMPTY = 0;
 const PLAYER = 1;
 const AI = 2;
+const AI_MAX_TIME = 2000; // Maximum AI thinking time in milliseconds
 
 function App() {
-  const [board, setBoard] = useState(() => 
+  const [board, setBoard] = useState(() =>
     Array(ROWS).fill(null).map(() => Array(COLS).fill(EMPTY))
   );
   const [currentPlayer, setCurrentPlayer] = useState(PLAYER);
@@ -17,18 +18,32 @@ function App() {
   const [winningCells, setWinningCells] = useState([]);
   const [isGameOver, setIsGameOver] = useState(false);
 
+  // Refs to track AI execution state for cleanup
+  const aiCancelCallbackRef = useRef(null);
+  const aiTimeoutIdRef = useRef(null);
+
   // Create new empty board
-  const createEmptyBoard = () => 
+  const createEmptyBoard = () =>
     Array(ROWS).fill(null).map(() => Array(COLS).fill(EMPTY));
 
   // Reset game
-  const resetGame = () => {
+  const resetGame = useCallback(() => {
+    // Cancel any ongoing AI move
+    if (aiCancelCallbackRef.current) {
+      aiCancelCallbackRef.current();
+      aiCancelCallbackRef.current = null;
+    }
+    if (aiTimeoutIdRef.current) {
+      clearTimeout(aiTimeoutIdRef.current);
+      aiTimeoutIdRef.current = null;
+    }
+
     setBoard(createEmptyBoard());
     setCurrentPlayer(PLAYER);
     setWinner(null);
     setWinningCells([]);
     setIsGameOver(false);
-  };
+  }, []);
 
   // Check if column has space
   const getAvailableRow = (boardState, col) => {
@@ -98,10 +113,47 @@ function App() {
     return boardState[0].map((cell, col) => cell === EMPTY ? col : -1).filter(col => col !== -1);
   };
 
-  // AI Move - Basic Strategy
-  const aiMove = () => {
+  // Execute a move and check game end conditions
+  const executeMove = useCallback((col, player) => {
+    const availableRow = getAvailableRow(board, col);
+    if (availableRow === null) return false;
+
+    const newBoard = board.map(row => [...row]);
+    newBoard[availableRow][col] = player;
+
+    setBoard(newBoard);
+
+    // Check for win
+    const winningLine = checkWin(newBoard, availableRow, col, player);
+    if (winningLine) {
+      setWinner(player);
+      setWinningCells(winningLine);
+      setIsGameOver(true);
+      return true;
+    }
+
+    // Check for draw
+    if (checkDraw(newBoard)) {
+      setWinner('draw');
+      setIsGameOver(true);
+      return true;
+    }
+
+    // Switch player
+    setCurrentPlayer(player === PLAYER ? AI : PLAYER);
+    return true;
+  }, [board]);
+
+  // AI Move - Basic Strategy with Timeout Support
+  const aiMove = useCallback(() => {
     const validCols = getValidColumns(board);
     if (validCols.length === 0) return;
+
+    // Create a cancel token for timeout
+    const cancelToken = { cancelled: false };
+    aiCancelCallbackRef.current = () => {
+      cancelToken.cancelled = true;
+    };
 
     let bestCol = null;
     let bestScore = -Infinity;
@@ -110,7 +162,15 @@ function App() {
     const centerCol = 3;
     const colPriority = [3, 2, 4, 1, 5, 0, 6];
 
+    // Process moves with cancellation support
     for (const col of colPriority) {
+      // Check for cancellation (timeout)
+      if (cancelToken.cancelled) {
+        // Fallback to first valid column if cancelled
+        executeMove(validCols[0], AI);
+        return;
+      }
+
       if (!validCols.includes(col)) continue;
 
       // Simulate AI move
@@ -126,9 +186,15 @@ function App() {
 
       // Simulate player response
       let score = 0;
-      
+
       // Check if player can win (block)
       for (const pCol of validCols) {
+        // Check for cancellation during inner loop
+        if (cancelToken.cancelled) {
+          executeMove(validCols[0], AI);
+          return;
+        }
+
         const { board: pBoard, row: pRow } = dropPiece(newBoard, pCol, PLAYER);
         if (pRow !== null) {
           const playerWin = checkWin(pBoard, pRow, pCol, PLAYER);
@@ -140,7 +206,7 @@ function App() {
 
       // Prefer center columns
       score += (3 - Math.abs(col - centerCol)) * 5;
-      
+
       // Lower columns have more potential
       score += (ROWS - row) * 2;
 
@@ -150,52 +216,50 @@ function App() {
       }
     }
 
+    // Check for final cancellation
+    if (cancelToken.cancelled) {
+      executeMove(validCols[0], AI);
+      return;
+    }
+
     if (bestCol !== null) {
-      handleColumnClick(bestCol);
+      executeMove(bestCol, AI);
     }
-  };
+  }, [board, executeMove]);
 
-  // Handle column click
-  const handleColumnClick = (col) => {
+  // Handle column click (player move)
+  const handleColumnClick = useCallback((col) => {
     if (isGameOver || currentPlayer !== PLAYER) return;
-
-    const availableRow = getAvailableRow(board, col);
-    if (availableRow === null) return;
-
-    const newBoard = board.map(row => [...row]);
-    newBoard[availableRow][col] = PLAYER;
-
-    setBoard(newBoard);
-
-    // Check for player win
-    const winningLine = checkWin(newBoard, availableRow, col, PLAYER);
-    if (winningLine) {
-      setWinner(PLAYER);
-      setWinningCells(winningLine);
-      setIsGameOver(true);
-      return;
-    }
-
-    // Check for draw
-    if (checkDraw(newBoard)) {
-      setWinner('draw');
-      setIsGameOver(true);
-      return;
-    }
-
-    // AI's turn
-    setCurrentPlayer(AI);
-  };
+    executeMove(col, PLAYER);
+  }, [isGameOver, currentPlayer, executeMove]);
 
   // Trigger AI move after player moves
   useEffect(() => {
     if (currentPlayer === AI && !isGameOver) {
       const delay = setTimeout(() => {
+        // Set up timeout to force AI to make a move
+        const timeoutId = setTimeout(() => {
+          if (aiCancelCallbackRef.current) {
+            aiCancelCallbackRef.current();
+          }
+        }, AI_MAX_TIME);
+        aiTimeoutIdRef.current = timeoutId;
+
+        // Execute AI move
         aiMove();
       }, 500);
-      return () => clearTimeout(delay);
+
+      return () => {
+        clearTimeout(delay);
+        if (aiTimeoutIdRef.current) {
+          clearTimeout(aiTimeoutIdRef.current);
+        }
+        if (aiCancelCallbackRef.current) {
+          aiCancelCallbackRef.current();
+        }
+      };
     }
-  }, [currentPlayer, isGameOver, board]);
+  }, [currentPlayer, isGameOver, board, aiMove]);
 
   return (
     <Container className="py-4">
@@ -203,10 +267,10 @@ function App() {
         <Col xs={12} md={10} lg={8}>
           <div className="game-container">
             <h1 className="text-center mb-4 title">Connect 4</h1>
-            
+
             <div className="instructions text-center">
               <p className="mb-0">
-                <strong>How to play:</strong> Click any column to drop your piece (red). 
+                <strong>How to play:</strong> Click any column to drop your piece (red).
                 Connect 4 in a row to win!
               </p>
             </div>
@@ -244,7 +308,7 @@ function App() {
                           winningCells.some(([r, c]) => r === row && c === col) ? 'winning' : ''
                         }`}
                         style={{
-                          cursor: (!isGameOver && currentPlayer === PLAYER && 
+                          cursor: (!isGameOver && currentPlayer === PLAYER &&
                                    board[0][col] === EMPTY) ? 'pointer' : 'default'
                         }}
                         onClick={() => handleColumnClick(col)}
