@@ -13,8 +13,16 @@ body {
 .game-board {
   background: #1e3a5f;
   border-radius: 10px;
-  padding: 15px;
+  padding: 10px;
   box-shadow: inset 0 4px 15px rgba(0, 0, 0, 0.3);
+  width: min(100%, 420px);
+  margin: 0 auto;
+}
+
+.board-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
 }
 
 .cell {
@@ -25,6 +33,15 @@ body {
   transition: all 0.2s ease;
   cursor: pointer;
   box-shadow: inset 0 4px 10px rgba(0, 0, 0, 0.4);
+}
+
+@media (max-width: 360px) {
+  .game-board {
+    padding: 8px;
+  }
+  .board-grid {
+    gap: 6px;
+  }
 }
 
 .cell.player {

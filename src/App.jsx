@@ -232,11 +232,11 @@ function App() {
 
             {/* Game Board */}
             <div className="game-board">
-              {[...Array(ROWS)].map((_, row) => (
-                <Row key={row} className="g-2 mb-2">
-                  {[...Array(COLS)].map((_, col) => (
-                    <Col key={col} xs={12/7}>
-                      <div
+              <div className="board-grid">
+                {[...Array(ROWS)].flatMap((_, row) =>
+                  [...Array(COLS)].map((_, col) => (
+                    <div
+                        key={row * COLS + col}
                         className={`cell ${
                           board[row][col] === PLAYER ? 'player' :
                           board[row][col] === AI ? 'ai' : ''
@@ -249,10 +249,9 @@ function App() {
                         }}
                         onClick={() => handleColumnClick(col)}
                       />
-                    </Col>
-                  ))}
-                </Row>
-              ))}
+                    ))
+                )}
+              </div>
             </div>
 
             {/* Restart Button */}
